@@ -122,7 +122,7 @@ def main(args):
     model_name = model_args.model_name_or_path.split('/')[
         -1] if '/' in model_args.model_name_or_path else model_args.model_name_or_path
 
-    eval_or_train = 'eval' if args.do_eval else 'train'
+    eval_or_train = 'eval' if training_args.do_eval else 'train'
 
     wandb.init(
         project='MRC',
