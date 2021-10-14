@@ -121,9 +121,12 @@ def main(args):
 
     model_name = model_args.model_name_or_path.split('/')[
         -1] if '/' in model_args.model_name_or_path else model_args.model_name_or_path
+
+    eval_or_train = 'eval' if args.do_eval else 'train'
+
     wandb.init(
         project='MRC',
-        name=(model_name) + '_' + str(args.per_device_train_batch_size) + '_' + str(args.num_train_epochs),
+        name=(model_name) + '_' + eval_or_train + '_' + str(args.per_device_train_batch_size) + '_' + str(args.num_train_epochs),
         config=config,
         entity='bumblebe2',
         group=(model_name),
