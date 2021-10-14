@@ -129,7 +129,7 @@ def main(args):
         name=(model_name) + '_' + eval_or_train + '_' + str(args.per_device_train_batch_size) + '_' + str(args.num_train_epochs),
         config=config,
         entity='bumblebe2',
-        group=(model_name),
+        group=(model_name) + '_' + eval_or_train,
     )
     wandb.config.update(args)
 
