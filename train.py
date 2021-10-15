@@ -131,6 +131,7 @@ def main(args):
         entity='bumblebe2',
         group=(model_name) + '_' + eval_or_train,
     )
+
     wandb.config.update(args)
 
     print(
