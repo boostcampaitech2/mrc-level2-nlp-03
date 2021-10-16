@@ -21,17 +21,20 @@ def f1_score(t_text, a_text):
     return f1
 
 def evaluate(test_dict, answer_dict) -> Dict[str, float]:
-    metrics = {}
-    
-    file_len = len(test_dict)
     assert len(test_dict) == len(answer_dict)
-
-    total = file_len
+    
+    metrics = {'EM': 0, 'f1': 0}
+    
+    total = 0
     exact_match = 0
     f1 = 0
 
-    for idx, (t_line, a_line) in enumerate(zip(test_dict, answer_dict)):
-        test_context, answer_context = test_dict[t_line], answer_dict[a_line]
+    for idx, t_line in enumerate(test_dict):
+        test_context, answer_context = test_dict[t_line], answer_dict[t_line]
+        if answer_context == "":
+            continue
+
+        total += 1
         
         test_processed = re.sub('\W+', '', test_context)
         answer_processed = re.sub('\W+', '', answer_context)
@@ -39,9 +42,12 @@ def evaluate(test_dict, answer_dict) -> Dict[str, float]:
         exact_match += (test_processed == answer_processed)
         f1 += f1_score(test_context, answer_context)
 
-    metrics['EM'] = exact_match / total
-    metrics['f1'] = f1 / total
-
+    if total != 0:
+        metrics['EM'] = exact_match / total
+        metrics['f1'] = f1 / total
+    else:
+        print('validation 파일을 확인해주세요!')
+        
     return metrics
 
 def main(args):
