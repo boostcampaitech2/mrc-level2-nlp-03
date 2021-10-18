@@ -66,13 +66,6 @@ class SparseRetrieval:
         print(f"Lengths of unique contexts : {len(self.contexts)}")
         self.ids = list(range(len(self.contexts)))
 
-        # Transform by vectorizer
-        # self.tfidfv = BM25(
-        #     tokenizer=tokenize_fn,
-        #     ngram_range=(1, 2),
-        #     max_features=50000,
-        # )
-
         self.tfidfv = TfidfVectorizer(
             tokenizer=tokenize_fn,
             ngram_range=(1, 2),
@@ -94,8 +87,6 @@ class SparseRetrieval:
         # Pickle을 저장합니다.
         pickle_name = f"sparse_embedding.bin"
         tfidfv_name = f"tfidv.bin"
-        # pickle_name = f"bm25_sparse_embedding.bin"
-        # tfidfv_name = f"bm25.bin"
         emd_path = os.path.join(self.data_path, pickle_name)
         tfidfv_path = os.path.join(self.data_path, tfidfv_name)
 
