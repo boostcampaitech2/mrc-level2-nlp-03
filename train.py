@@ -121,13 +121,17 @@ def main(args):
 
     model_name = model_args.model_name_or_path.split('/')[
         -1] if '/' in model_args.model_name_or_path else model_args.model_name_or_path
+
+    eval_or_train = 'eval' if training_args.do_eval else 'train'
+
     wandb.init(
         project='MRC',
-        name=(model_name) + '_' + str(args.per_device_train_batch_size) + '_' + str(args.num_train_epochs),
+        name=(model_name) + '_' + eval_or_train + '_' + str(args.per_device_train_batch_size) + '_' + str(args.num_train_epochs),
         config=config,
         entity='bumblebe2',
-        group=(model_name),
+        group=(model_name) + '_' + eval_or_train,
     )
+
     wandb.config.update(args)
 
     print(
@@ -412,7 +416,7 @@ if __name__ == "__main__":
 
     # args
     parser.add_argument('--output_dir', type=str, default="./outputs/train_dataset/ ")
-    parser.add_argument('--do_train', type=bool, default=True)
+    parser.add_argument('--do_train', type=bool, default=False)
     parser.add_argument('--do_eval', type=bool, default=False)
     parser.add_argument('--save_total_limit', type=int, default=5)
     parser.add_argument('--model_name_or_path', type=str, default='klue/bert-base')
