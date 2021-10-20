@@ -10,7 +10,6 @@ from tqdm.auto import tqdm
 from contextlib import contextmanager
 from typing import List, Tuple, NoReturn, Any, Optional, Union
 
-
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 from datasets import (
@@ -19,6 +18,9 @@ from datasets import (
     concatenate_datasets,
 )
 
+from rank_bm25 import BM25Okapi
+
+from konlpy.tag import Mecab
 
 @contextmanager
 def timer(name):
@@ -185,7 +187,7 @@ class SparseRetrieval:
             total = []
             with timer("query exhaustive search"):
                 doc_scores, doc_indices = self.get_relevant_doc_bulk(
-                    query_or_dataset["question"], k=topk
+                    query_or_dataset["question"], k=topk, use_mecab
                 )
             for idx, example in enumerate(
                 tqdm(query_or_dataset, desc="Sparse retrieval: ")
@@ -395,6 +397,11 @@ class SparseRetrieval_BM25(SparseRetrieval):
     ) -> NoReturn:
         super(SparseRetrieval_BM25, self).__init__(tokenize_fn)
         self.tokenize_fn = tokenize_fn
+        
+        #명사 append
+        self.mecab = Mecab()
+        self.pos_list = ['NNG', 'NNP', 'SW', 'SL', 'SH', 'SN']
+        self.stopwords = ['말', '것', '사람', '그', '무엇', '누구', '곳', '경우', '각자', '지', '때']
 
     def get_tokenized(self) -> NoReturn:
 
@@ -427,7 +434,7 @@ class SparseRetrieval_BM25(SparseRetrieval):
             print("Tokenized pickle saved.")
 
     def retrieve(
-        self, query_or_dataset: Union[str, Dataset], topk: Optional[int] = 1
+        self, query_or_dataset: Union[str, Dataset], topk: Optional[int] = 1, use_mecab=False
     ) -> Union[Tuple[List, List], pd.DataFrame]:
 
         """
@@ -453,7 +460,7 @@ class SparseRetrieval_BM25(SparseRetrieval):
         assert self.tokenized_contexts is not None, "get_tokenized() 메소드를 먼저 수행해줘야합니다."
 
         if isinstance(query_or_dataset, str):
-            doc_scores, doc_indices = self.get_relevant_doc(query_or_dataset, k=topk)
+            doc_scores, doc_indices = self.get_relevant_doc(query_or_dataset, k=topk, use_mecab)
             print("[Search query]\n", query_or_dataset, "\n")
 
             for i in range(topk):
@@ -500,8 +507,12 @@ class SparseRetrieval_BM25(SparseRetrieval):
         Note:
             vocab 에 없는 이상한 단어로 query 하는 경우 assertion 발생 (예) 뙣뙇?
         """
+        if use_mecab:
+            query = self.preprocess_query(query)
+
         tokenized_query = self.tokenize_fn(query)
         result = self.bm25.get_scores(tokenized_query)
+        
         sorted_result = np.argsort(result.squeeze())[::-1]
         doc_score = result[sorted_result].tolist()[:k]
         doc_score = result[sorted_result].tolist()[:k]
@@ -510,7 +521,7 @@ class SparseRetrieval_BM25(SparseRetrieval):
         return doc_score, doc_indices
 
     def get_relevant_doc_bulk(
-        self, queries: List, k: Optional[int] = 1
+        self, queries: List, k: Optional[int] = 1, use_mecab = False
     ) -> Tuple[List, List]:
 
         """
@@ -526,12 +537,20 @@ class SparseRetrieval_BM25(SparseRetrieval):
         doc_scores = []
         doc_indices = []
 
-        for idx, query in enumerate(queries):
-            print(idx, query) #tqdm 대신
+        for idx, query in enumerate(tqdm(queries)):
+            if use_mecab:
+                query = self.preprocess_query(query)
             doc_score, doc_indice = self.get_relevant_doc(query, k)
             doc_scores.append(doc_score)
+            doc_indices.append(doc_indice)
 
         return doc_scores, doc_indices
+
+    def preprocess_query(self, text):
+        query = self.mecab.pos(text)
+        new_query = [x[0] for x in query if x[1] in self.pos_list and x[0] not in self.stopwords]
+        new_query = ' '.join(new_query)
+        return text + ' ' + new_query
 
 
 if __name__ == "__main__":
