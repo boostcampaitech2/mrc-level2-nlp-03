@@ -187,7 +187,7 @@ class SparseRetrieval:
             total = []
             with timer("query exhaustive search"):
                 doc_scores, doc_indices = self.get_relevant_doc_bulk(
-                    query_or_dataset["question"], k=topk, use_mecab
+                    query_or_dataset["question"], k=topk
                 )
             for idx, example in enumerate(
                 tqdm(query_or_dataset, desc="Sparse retrieval: ")
@@ -460,7 +460,7 @@ class SparseRetrieval_BM25(SparseRetrieval):
         assert self.tokenized_contexts is not None, "get_tokenized() 메소드를 먼저 수행해줘야합니다."
 
         if isinstance(query_or_dataset, str):
-            doc_scores, doc_indices = self.get_relevant_doc(query_or_dataset, k=topk, use_mecab)
+            doc_scores, doc_indices = self.get_relevant_doc(query_or_dataset, k=topk, use_mecab=use_mecab)
             print("[Search query]\n", query_or_dataset, "\n")
 
             for i in range(topk):
@@ -474,7 +474,7 @@ class SparseRetrieval_BM25(SparseRetrieval):
             # Retrieve한 Passage를 pd.DataFrame으로 반환합니다.
             total = []
             doc_scores, doc_indices = self.get_relevant_doc_bulk(
-                query_or_dataset["question"], k=topk
+                query_or_dataset["question"], k=topk, use_mecab=use_mecab
             )
             for idx, example in enumerate(query_or_dataset):
                 tmp = {
@@ -496,7 +496,7 @@ class SparseRetrieval_BM25(SparseRetrieval):
             cqas = pd.DataFrame(total)
             return cqas
 
-    def get_relevant_doc(self, query: str, k: Optional[int] = 1) -> Tuple[List, List]:
+    def get_relevant_doc(self, query: str, k: Optional[int] = 1, use_mecab=False) -> Tuple[List, List]:
 
         """
         Arguments:
@@ -538,9 +538,7 @@ class SparseRetrieval_BM25(SparseRetrieval):
         doc_indices = []
 
         for idx, query in enumerate(tqdm(queries)):
-            if use_mecab:
-                query = self.preprocess_query(query)
-            doc_score, doc_indice = self.get_relevant_doc(query, k)
+            doc_score, doc_indice = self.get_relevant_doc(query, k, use_mecab)
             doc_scores.append(doc_score)
             doc_indices.append(doc_indice)
 
