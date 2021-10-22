@@ -397,7 +397,17 @@ class SparseRetrieval_BM25(SparseRetrieval):
     ) -> NoReturn:
         super(SparseRetrieval_BM25, self).__init__(tokenize_fn)
         self.tokenize_fn = tokenize_fn
-        
+        self.context_path = context_path  
+
+        with open(os.path.join(data_path, context_path), "r", encoding="utf-8") as f:
+            wiki = json.load(f)
+
+        self.contexts_with_title = list(
+            dict.fromkeys(['#' + v['title'] + '# ' + v["text"] for v in wiki.values()])
+        )  # set 은 매번 순서가 바뀌므로
+
+        print(self.contexts_with_title[0])
+
         #명사 append
         self.mecab = Mecab()
         self.pos_list = ['NNG', 'NNP', 'SW', 'SL', 'SH', 'SN']
@@ -412,8 +422,8 @@ class SparseRetrieval_BM25(SparseRetrieval):
         """
 
         # Pickle을 저장합니다.
-        pickle_name = f"tokenized_wiki.bin"
-        bm25_name = f"bm25.bin"
+        pickle_name = f"tokenized_wiki_with_title.bin"
+        bm25_name = f"bm25_with_title.bin"
         tokenized_path = os.path.join(self.data_path, pickle_name)
         bm25_path = os.path.join(self.data_path, bm25_name)
 
@@ -425,7 +435,7 @@ class SparseRetrieval_BM25(SparseRetrieval):
             print("Tokenized pickle load.")
         else:
             print("Tokenize Wikipedia")
-            self.tokenized_contexts = [self.tokenize_fn(doc) for doc in self.contexts]
+            self.tokenized_contexts = [self.tokenize_fn(doc) for doc in self.contexts_with_title]
             self.bm25 = BM25Okapi(self.tokenized_contexts)
             with open(tokenized_path, "wb") as file:
                 pickle.dump(self.tokenized_contexts, file)
@@ -483,8 +493,8 @@ class SparseRetrieval_BM25(SparseRetrieval):
                     "id": example["id"],
                     # Retrieve한 Passage의 id, context를 반환합니다.
                     "context_id": doc_indices[idx],
-                    "context": " ".join(
-                        [self.contexts[pid] for pid in doc_indices[idx]]
+                    "context": "\n".join(
+                        [self.contexts_with_title[pid] for pid in doc_indices[idx]]
                     ),
                 }
                 if "context" in example.keys() and "answers" in example.keys():
@@ -550,6 +560,10 @@ class SparseRetrieval_BM25(SparseRetrieval):
         new_query = ' '.join(new_query)
         return text + ' ' + new_query
 
+    def remove_tag(self, text):
+        hashtag_split = text.split('#')
+        new_text = '#'.join(hashtag_split[2:])[1:]
+        return new_text
 
 if __name__ == "__main__":
 
