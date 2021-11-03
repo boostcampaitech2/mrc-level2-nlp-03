@@ -10,6 +10,8 @@ import sys
 from typing import Callable, List, Dict, NoReturn, Tuple
 
 import numpy as np
+import os
+import pickle
 
 from datasets import (
     load_metric,
@@ -33,7 +35,9 @@ from transformers import (
 
 from utils_qa import postprocess_qa_predictions, check_no_error
 from trainer_qa import QuestionAnsweringTrainer
-from retrieval import SparseRetrieval, SparseRetrieval_BM25
+from retrieval import SparseRetrieval
+from bm25_retrieval import SparseRetrieval_BM25
+from model import CustomModel
 
 from arguments import (
     ModelArguments,
@@ -72,7 +76,6 @@ def main():
     set_seed(training_args.seed)
 
     datasets = load_from_disk(data_args.dataset_name)
-    print(datasets)
 
     # AutoConfig를 이용하여 pretrained model 과 tokenizer를 불러옵니다.
     # argument로 원하는 모델 이름을 설정하면 옵션을 바꿀 수 있습니다.
@@ -87,7 +90,13 @@ def main():
         else model_args.model_name_or_path,
         use_fast=True,
     )
-    model = AutoModelForQuestionAnswering.from_pretrained(
+    # model = AutoModelForQuestionAnswering.from_pretrained(
+    #     model_args.model_name_or_path,
+    #     from_tf=bool(".ckpt" in model_args.model_name_or_path),
+    #     config=config,
+    # )
+
+    model = CustomModel.from_pretrained(
         model_args.model_name_or_path,
         from_tf=bool(".ckpt" in model_args.model_name_or_path),
         config=config,
@@ -95,12 +104,27 @@ def main():
 
     # True일 경우 : run passage retrieval
     if data_args.eval_retrieval:
-        datasets = run_sparse_retrieval(
-            tokenizer.tokenize,
-            datasets,
-            training_args,
-            data_args,
-        )
+        
+        #bm25 retrieval pickle load/save
+        data_path = '../data'
+        pickle_name = f"sparse_retrieval.bin"
+        ret_path = os.path.join(data_path, pickle_name)
+
+        if os.path.isfile(ret_path):
+            print('Load retrieval pickle...')
+            with open(ret_path, "rb") as file:
+                datasets = pickle.load(file)
+        else:
+            datasets = run_sparse_retrieval(
+                tokenizer.tokenize,
+                datasets,
+                training_args,
+                data_args,
+            )
+            with open(ret_path, "wb") as file:
+                pickle.dump(datasets, file)
+            print('Retrieval pickle saved!')
+
 
     # eval or predict mrc model
     if training_args.do_eval or training_args.do_predict:
@@ -113,7 +137,7 @@ def run_sparse_retrieval(
     training_args: TrainingArguments,
     data_args: DataTrainingArguments,
     data_path: str = "../data",
-    context_path: str = "wikipedia_documents.json",
+    context_path: str = "wikipedia_documents_cleaned.json",
 ) -> DatasetDict:
 
     # Query에 맞는 Passage들을 Retrieval 합니다.
@@ -121,7 +145,7 @@ def run_sparse_retrieval(
         tokenize_fn=tokenize_fn, data_path=data_path, context_path=context_path
     )
     # retriever.get_sparse_embedding()
-    retriever.get_tokenized()
+    retriever.get_tokenized(pickle_name="wiki_clean_title.bin", bm25_name = "bm25_clean_title.bin")
 
     if data_args.use_faiss:
         retriever.build_faiss(num_clusters=data_args.num_clusters)
@@ -129,7 +153,8 @@ def run_sparse_retrieval(
             datasets["validation"], topk=data_args.top_k_retrieval
         )
     else:
-        df = retriever.retrieve(datasets["validation"], topk=data_args.top_k_retrieval, data_args.use_mecab)
+        # df = retriever.retrieve(datasets["validation"], topk=data_args.top_k_retrieval)
+        df = retriever.retrieve(datasets["validation"], topk=data_args.top_k_retrieval, use_mecab=data_args.use_mecab)
 
     # test data 에 대해선 정답이 없으므로 id question context 로만 데이터셋이 구성됩니다.
     if training_args.do_predict:
