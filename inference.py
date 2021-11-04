@@ -31,6 +31,7 @@ from transformers import (
     set_seed,
 )
 
+from retrieval import SparseRetrieval
 from utils_qa import postprocess_qa_predictions, check_no_error
 from trainer_qa import QuestionAnsweringTrainer
 

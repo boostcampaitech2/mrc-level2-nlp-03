@@ -16,3 +16,6 @@ pip install wandb
 
 # install knockknock
 pip install knockknock
+
+# install fire
+pip install fire

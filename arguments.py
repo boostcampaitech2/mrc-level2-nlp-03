@@ -9,7 +9,7 @@ class ModelArguments:
     """
 
     model_name_or_path: str = field(
-        default="klue/bert-base",
+        default="google/mt5-small",
         metadata={
             "help": "Path to pretrained model or model identifier from huggingface.co/models"
         },
@@ -53,6 +53,20 @@ class DataTrainingArguments:
             "than this will be truncated, sequences shorter will be padded."
         },
     )
+    max_source_length: int = field(
+        default=1024,
+        metadata={
+            "help": "The maximum total input source length after tokenization. Sequences longer "
+            "than this will be truncated, sequences shorter will be padded."
+        },
+    )
+    max_target_length: int = field(
+        default=128,
+        metadata={
+            "help": "The maximum total input target length after tokenization. Sequences longer "
+            "than this will be truncated, sequences shorter will be padded."
+        },
+    )
     pad_to_max_length: bool = field(
         default=False,
         metadata={
@@ -89,4 +103,19 @@ class DataTrainingArguments:
     )
     use_faiss: bool = field(
         default=False, metadata={"help": "Whether to build with faiss"}
+    )
+    # num_train_epochs: int = field(
+    #     default=3, metadata={"help": "how many times to train"}
+    # )
+    # train_batch_size: int = field(
+    #     default=16, metadata={"help":"train batch size"}
+    # )
+    # eval_batch_size: int = field(
+    #     default=4, metadata={"help":"eval batch size"}
+    # )
+    max_val_samples: int = field(
+        default=16, metadata={"help":"eval batch size"}
+    )
+    num_beams: int = field(
+        default=2, metadata={"help": "the number of beamsearch"}
     )
