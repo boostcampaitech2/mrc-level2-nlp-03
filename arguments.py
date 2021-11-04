@@ -119,3 +119,6 @@ class DataTrainingArguments:
     num_beams: int = field(
         default=2, metadata={"help": "the number of beamsearch"}
     )
+    extractive_based: bool = field(
+        default=True, metadata={"help": "extractive or generative"}
+    )

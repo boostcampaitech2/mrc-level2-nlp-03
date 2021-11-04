@@ -133,7 +133,8 @@ def main():
 
     eval_or_train = 'eval' if training_args.do_eval else 'train'
 
-    based='gen'
+    based = 'ext' if data_args.extractive_based else 'gen'
+
     wandb.init(
         project='MRC',
         name=based + '_' + (model_name) + '_' + eval_or_train + '_' + str(training_args.per_device_train_batch_size) + '_' + str(training_args.num_train_epochs),
@@ -247,11 +248,11 @@ def run_gen_mrc(
         )
 
         # 길이가 긴 context가 등장할 경우 truncate를 진행해야하므로, 해당 데이터셋을 찾을 수 있도록 mapping 가능한 값이 필요합니다.
-        sample_mapping = tokenized_examples.pop("overflow_to_sample_mapping")
+        # sample_mapping = tokenized_examples.pop("overflow_to_sample_mapping")
 
         # evaluation을 위해, prediction을 context의 substring으로 변환해야합니다.
         # corresponding example_id를 유지하고 offset mappings을 저장해야합니다.
-        tokenized_examples["example_id"] = []
+        # tokenized_examples["example_id"] = []
 
         # for i in range(len(tokenized_examples["input_ids"])):
         #     # sequence id를 설정합니다 (to know what is the context and what is the question).
@@ -451,3 +452,4 @@ if __name__ == "__main__":
 
 
     # print(args)
+

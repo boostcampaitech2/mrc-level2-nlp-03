@@ -9,6 +9,7 @@ import logging
 import sys
 from typing import Callable, List, Dict, NoReturn, Tuple
 
+import nltk
 import numpy as np
 
 from datasets import (
@@ -21,7 +22,8 @@ from datasets import (
     DatasetDict,
 )
 
-from transformers import AutoConfig, AutoModelForQuestionAnswering, AutoTokenizer
+from transformers import AutoConfig, AutoModelForQuestionAnswering, AutoTokenizer, AutoModelForSeq2SeqLM, \
+    Seq2SeqTrainer, Seq2SeqTrainingArguments
 
 from transformers import (
     DataCollatorWithPadding,
@@ -77,6 +79,7 @@ def main():
 
     # AutoConfig를 이용하여 pretrained model 과 tokenizer를 불러옵니다.
     # argument로 원하는 모델 이름을 설정하면 옵션을 바꿀 수 있습니다.
+
     config = AutoConfig.from_pretrained(
         model_args.config_name
         if model_args.config_name
@@ -87,12 +90,21 @@ def main():
         if model_args.tokenizer_name
         else model_args.model_name_or_path,
         use_fast=True,
+        config=config
     )
-    model = AutoModelForQuestionAnswering.from_pretrained(
-        model_args.model_name_or_path,
-        from_tf=bool(".ckpt" in model_args.model_name_or_path),
-        config=config,
-    )
+    if data_args.extractive_based:
+        model = AutoModelForQuestionAnswering.from_pretrained(
+            model_args.model_name_or_path,
+            from_tf=bool(".ckpt" in model_args.model_name_or_path),
+            config=config,
+        )
+    else:
+        model = AutoModelForSeq2SeqLM.from_pretrained(
+            model_args.model_name_or_path,
+            from_tf=bool(".ckpt" in model_args.model_name_or_path),
+            config=config,
+        )
+
 
     # True일 경우 : run passage retrieval
     if data_args.eval_retrieval:
@@ -173,10 +185,11 @@ def run_mrc(
 
     # eval 혹은 prediction에서만 사용함
     column_names = datasets["validation"].column_names
-
-    question_column_name = "question" if "question" in column_names else column_names[0]
-    context_column_name = "context" if "context" in column_names else column_names[1]
-    answer_column_name = "answers" if "answers" in column_names else column_names[2]
+    print(f'column_names:{column_names}')
+    column_names.append("answers")
+    question_column_name = "question" if "question" in column_names else column_names[2]
+    context_column_name = "context" if "context" in column_names else column_names[0]
+    answer_column_name = "answers" if "answers" in column_names else column_names[3]
 
     # Padding에 대한 옵션을 설정합니다.
     # (question|context) 혹은 (context|question)로 세팅 가능합니다.
@@ -186,44 +199,92 @@ def run_mrc(
     last_checkpoint, max_seq_length = check_no_error(
         data_args, training_args, datasets, tokenizer
     )
-
+    # if not data_args.extractive_based:
     # Validation preprocessing / 전처리를 진행합니다.
+
+    def preprocess_function(examples):
+        inputs = [f"question: {q}  context: {c} </s>" for q, c in zip(examples["question"], examples["context"])]
+        print(examples.columns)
+        targets = [f'{a["text"][0]} </s>' for a in examples['answers']]
+        model_inputs = tokenizer(
+            inputs,
+            max_length=min(data_args.max_source_length, tokenizer.model_max_length),
+            padding="max_length" if data_args.pad_to_max_length else False,
+            truncation=True
+        )
+
+        # targets(label)을 위해 tokenizer 설정
+        with tokenizer.as_target_tokenizer():
+            labels = tokenizer(
+                targets,
+                max_length=data_args.max_target_length,
+                padding="max_length" if data_args.pad_to_max_length else False,
+                truncation=True
+            )
+
+        model_inputs["labels"] = labels["input_ids"]
+        model_inputs["example_id"] = []
+        for i in range(len(model_inputs["labels"])):
+            model_inputs["example_id"].append(examples["id"][i])
+        return model_inputs
+
     def prepare_validation_features(examples):
         # truncation과 padding(length가 짧을때만)을 통해 toknization을 진행하며, stride를 이용하여 overflow를 유지합니다.
         # 각 example들은 이전의 context와 조금씩 겹치게됩니다.
-        tokenized_examples = tokenizer(
-            examples[question_column_name if pad_on_right else context_column_name],
-            examples[context_column_name if pad_on_right else question_column_name],
-            truncation="only_second" if pad_on_right else "only_first",
-            max_length=max_seq_length,
-            stride=data_args.doc_stride,
-            return_overflowing_tokens=True,
-            return_offsets_mapping=True,
-            #return_token_type_ids=False, # roberta모델을 사용할 경우 False, bert를 사용할 경우 True로 표기해야합니다.
-            padding="max_length" if data_args.pad_to_max_length else False,
-        )
+        if data_args.extractive_based:
+            tokenized_examples = tokenizer(
+                examples[question_column_name if pad_on_right else context_column_name],
+                examples[context_column_name if pad_on_right else question_column_name],
+                truncation="only_second" if pad_on_right else "only_first",
+                max_length=max_seq_length,
+                stride=data_args.doc_stride,
+                return_overflowing_tokens=True,
+                return_offsets_mapping=True,
+                #return_token_type_ids=False, # roberta모델을 사용할 경우 False, bert를 사용할 경우 True로 표기해야합니다.
+                padding="max_length" if data_args.pad_to_max_length else False,
+            )
+            # 길이가 긴 context가 등장할 경우 truncate를 진행해야하므로, 해당 데이터셋을 찾을 수 있도록 mapping 가능한 값이 필요합니다.
+            sample_mapping = tokenized_examples.pop("overflow_to_sample_mapping")
+            # evaluation을 위해, prediction을 context의 substring으로 변환해야합니다.
+            # corresponding example_id를 유지하고 offset mappings을 저장해야합니다.
+            tokenized_examples["example_id"] = []
+            for i in range(len(tokenized_examples["input_ids"])):
+                # sequence id를 설정합니다 (to know what is the context and what is the question).
+                sequence_ids = tokenized_examples.sequence_ids(i)
+                context_index = 1 if pad_on_right else 0
 
-        # 길이가 긴 context가 등장할 경우 truncate를 진행해야하므로, 해당 데이터셋을 찾을 수 있도록 mapping 가능한 값이 필요합니다.
-        sample_mapping = tokenized_examples.pop("overflow_to_sample_mapping")
+                # 하나의 example이 여러개의 span을 가질 수 있습니다.
+                sample_index = sample_mapping[i]
+                tokenized_examples["example_id"].append(examples["id"][sample_index])
 
-        # evaluation을 위해, prediction을 context의 substring으로 변환해야합니다.
-        # corresponding example_id를 유지하고 offset mappings을 저장해야합니다.
-        tokenized_examples["example_id"] = []
+                # context의 일부가 아닌 offset_mapping을 None으로 설정하여 토큰 위치가 컨텍스트의 일부인지 여부를 쉽게 판별할 수 있습니다.
+                tokenized_examples["offset_mapping"][i] = [
+                    (o if sequence_ids[k] == context_index else None)
+                    for k, o in enumerate(tokenized_examples["offset_mapping"][i])
+                ]
+        else:
+            inputs = [f"question: {q}  context: {c} </s>" for q, c in zip(examples["question"], examples["context"])]
+            print(examples)
+            targets = [f'{a["text"][0]} </s>' for a in examples['answers']]
+            tokenized_examples = tokenizer(
+                inputs,
+                max_length=min(data_args.max_source_length, tokenizer.model_max_length),
+                padding="max_length" if data_args.pad_to_max_length else False,
+                truncation=True
+            )        # targets(label)을 위해 tokenizer 설정
+            with tokenizer.as_target_tokenizer():
+                labels = tokenizer(
+                    targets,
+                    max_length=data_args.max_target_length,
+                    padding="max_length" if data_args.pad_to_max_length else False,
+                    truncation=True
+                )
 
-        for i in range(len(tokenized_examples["input_ids"])):
-            # sequence id를 설정합니다 (to know what is the context and what is the question).
-            sequence_ids = tokenized_examples.sequence_ids(i)
-            context_index = 1 if pad_on_right else 0
+            tokenized_examples["labels"] = labels["input_ids"]
+            tokenized_examples["example_id"] = []
+            for i in range(len(tokenized_examples["labels"])):
+                tokenized_examples["example_id"].append(examples["id"][i])
 
-            # 하나의 example이 여러개의 span을 가질 수 있습니다.
-            sample_index = sample_mapping[i]
-            tokenized_examples["example_id"].append(examples["id"][sample_index])
-
-            # context의 일부가 아닌 offset_mapping을 None으로 설정하여 토큰 위치가 컨텍스트의 일부인지 여부를 쉽게 판별할 수 있습니다.
-            tokenized_examples["offset_mapping"][i] = [
-                (o if sequence_ids[k] == context_index else None)
-                for k, o in enumerate(tokenized_examples["offset_mapping"][i])
-            ]
         return tokenized_examples
 
     eval_dataset = datasets["validation"]
@@ -231,6 +292,7 @@ def run_mrc(
     # Validation Feature 생성
     eval_dataset = eval_dataset.map(
         prepare_validation_features,
+        # preprocess_function,
         batched=True,
         num_proc=data_args.preprocessing_num_workers,
         remove_columns=column_names,
@@ -267,6 +329,7 @@ def run_mrc(
         if training_args.do_predict:
             return formatted_predictions
         elif training_args.do_eval:
+
             references = [
                 {"id": ex["id"], "answers": ex[answer_column_name]}
                 for ex in datasets["validation"]
@@ -275,33 +338,100 @@ def run_mrc(
             return EvalPrediction(
                 predictions=formatted_predictions, label_ids=references
             )
+    def postprocess_text(preds, labels):
+        """
+        postprocess는 nltk를 이용합니다.
+        Huggingface의 TemplateProcessing을 사용하여
+        정규표현식 기반으로 postprocess를 진행할 수 있지만
+        해당 미션에서는 nltk를 이용하여 간단한 후처리를 진행합니다
+        """
+
+        preds = [pred.strip() for pred in preds]
+        labels = [label.strip() for label in labels]
+
+        preds = ["\n".join(nltk.sent_tokenize(pred)) for pred in preds]
+        labels = ["\n".join(nltk.sent_tokenize(label)) for label in labels]
+
+        return preds, labels
 
     metric = load_metric("squad")
 
     def compute_metrics(p: EvalPrediction) -> Dict:
-        return metric.compute(predictions=p.predictions, references=p.label_ids)
+        if data_args.extractive_based:
+            result = metric.compute(predictions=p.predictions, references=p.label_ids)
+        else:
+            preds, labels = EvalPrediction
+            if isinstance(preds, tuple):
+                preds = preds[0]
+
+            decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
+            # decoded_labels은 rouge metric을 위한 것이며, f1/em을 구할 때 사용되지 않음
+            decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+
+            # 간단한 post-processing
+            decoded_preds, decoded_labels = postprocess_text(decoded_preds, decoded_labels)
+
+            formatted_predictions = [{"id": ex["id"], "prediction_text": decoded_preds[i]} for i, ex in
+                                     enumerate(datasets["validation"].select(range(data_args.max_val_samples)))]
+            references = [{"id": ex["id"], "answers": ex["answers"]} for ex in
+                          datasets["validation"].select(range(data_args.max_val_samples))]
+
+            result = metric.compute(predictions=formatted_predictions, references=references)
+        return result
 
     print("init trainer...")
     # Trainer 초기화
-    trainer = QuestionAnsweringTrainer(
-        model=model,
-        args=training_args,
-        train_dataset=None,
-        eval_dataset=eval_dataset,
-        eval_examples=datasets["validation"],
-        tokenizer=tokenizer,
-        data_collator=data_collator,
-        post_process_function=post_processing_function,
-        compute_metrics=compute_metrics,
-    )
+    if data_args.extractive_based:
+        trainer = QuestionAnsweringTrainer(
+            model=model,
+            args=training_args,
+            train_dataset=None,
+            eval_dataset=eval_dataset,
+            eval_examples=datasets["validation"],
+            tokenizer=tokenizer,
+            data_collator=data_collator,
+            post_process_function=post_processing_function,
+            compute_metrics=compute_metrics,
+        )
+    else:
+        args = Seq2SeqTrainingArguments(
+            output_dir=training_args.output_dir,
+            do_train=training_args.do_train,
+            do_eval=training_args.do_eval,
+            predict_with_generate=True,
+            per_device_train_batch_size=training_args.per_device_train_batch_size,
+            per_device_eval_batch_size=training_args.per_device_eval_batch_size,
+            num_train_epochs=training_args.num_train_epochs,
+            save_strategy='epoch',
+            post_process_function=postprocess_text,
+            save_total_limit=2  # 모델 checkpoint를 최대 몇개 저장할지 설정
+        )
+        trainer = Seq2SeqTrainer(
+            model=model,
+            args=args,
+            train_dataset=None,
+            eval_dataset=eval_dataset,
+            eval_examples=datasets["validation"],
+            tokenizer=tokenizer,
+            data_collator=data_collator,
+            # post_process_function=postprocess_text,
+            compute_metrics=compute_metrics,
+        )
 
     logger.info("*** Evaluate ***")
 
     #### eval dataset & eval example - predictions.json 생성됨
     if training_args.do_predict:
-        predictions = trainer.predict(
-            test_dataset=eval_dataset, test_examples=datasets["validation"]
-        )
+        if data_args.extractive_based:
+            predictions = trainer.predict(
+                test_dataset=eval_dataset,
+                test_examples=datasets["validation"],
+            )
+        else:
+            predictions = trainer.predict(
+                test_dataset=eval_dataset,
+                test_examples=datasets["validation"],
+            )
 
         # predictions.json 은 postprocess_qa_predictions() 호출시 이미 저장됩니다.
         print(
@@ -309,7 +439,14 @@ def run_mrc(
         )
 
     if training_args.do_eval:
-        metrics = trainer.evaluate()
+        if data_args.extractive_based:
+            metrics = trainer.evaluate()
+        else:
+            metrics = trainer.evaluate(
+                max_length=data_args.max_target_length,
+                num_beams=data_args.num_beams,
+                metric_key_prefix="eval"
+            )
         metrics["eval_samples"] = len(eval_dataset)
 
         trainer.log_metrics("test", metrics)
