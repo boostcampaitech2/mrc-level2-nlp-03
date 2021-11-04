@@ -2,13 +2,10 @@ import logging
 import os
 import sys
 import pickle
-import re
 
 from typing import List, Callable, NoReturn, NewType, Any
 import dataclasses
 from datasets import load_metric, load_from_disk, Dataset, DatasetDict
-from tqdm import tqdm
-import pandas as pd
 
 from transformers import AutoConfig, AutoModelForQuestionAnswering, AutoTokenizer
 
@@ -21,12 +18,12 @@ from transformers import (
 )
 
 from tokenizers import Tokenizer
-from tokenizers.models import WordPiece
 
-from utils_qa import postprocess_qa_predictions, check_no_error
+from utils_qa import postprocess_qa_predictions, check_no_error, preprocess_dataset
 from trainer_qa import QuestionAnsweringTrainer
-from retrieval import SparseRetrieval
+# from retrieval import SparseRetrieval
 from bm25_retrieval import SparseRetrieval_BM25
+from model import CustomModel
 
 from arguments import (
     ModelArguments,
@@ -34,15 +31,7 @@ from arguments import (
 )
 
 import argparse
-
 import wandb
-
-
-from model import CustomModel
-
-# from knockknock import slack_sender
-# webhook_url = "https://hooks.slack.com/services/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"
-# @slack_sender(webhook_url=webhook_url, channel="#nlp-wandb")
 
 logger = logging.getLogger(__name__)
 
@@ -57,16 +46,13 @@ def main(args):
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     print(model_args.model_name_or_path)
 
-    # model_args.model_name_or_path = args.model_name
-    # model_name_or_path = model_args.model_name_or_path.split('/')[-1] if '/' in model_args.model_name_or_path else model_args.model_name_or_path
-
-    # [참고] argument를 manual하게 수정하고 싶은 경우에 아래와 같은 방식을 사용할 수 있습니다
-    # training_args.per_device_train_batch_size = 4
-    # print(training_args.per_device_train_batch_size)
-    training_args.num_train_epochs = 3
-    training_args.save_total_limit = 5
-    training_args.save_steps = 500
-    print(training_args)
+    # training_args
+    training_args.num_train_epochs = args.num_train_epochs
+    training_args.save_total_limit = args.save_total_limit
+    training_args.per_device_train_batch_size = args.per_device_train_batch_size
+    training_args.per_device_eval_batch_size = args.per_device_eval_batch_size
+    training_args.save_steps = args.save_steps
+    training_args.logging_steps = args.logging_steps
 
     print(f"model is from {model_args.model_name_or_path}")
     print(f"data is from {data_args.dataset_name}")
@@ -86,34 +72,41 @@ def main(args):
 
     datasets = load_from_disk(data_args.dataset_name)
 
-    # new_train_path='../data/new_train_dataset.bin'
-    # new_valid_path='../data/new_valid_dataset.bin'
+    # load pre-processed dataset if using qtype
+    if data_args.qtype:
+        # do not need to read here
+        # 열심히 구현했는데 결과가 그닥 좋지 않아 남겨둔 구질구질한 미련임
+        new_train_path='../data/new_train_dataset.bin'
+        new_valid_path='../data/new_valid_dataset.bin'
 
-    # if os.path.isfile(new_train_path) and os.path.isfile(new_valid_path):
-    #     print("Loading New Train data")
-    #     with open(new_train_path, "rb") as file:
-    #         datasets["train"] = pickle.load(file)
+        if os.path.isfile(new_train_path) and os.path.isfile(new_valid_path):
+            print("Loading New Train data with qtype")
+            with open(new_train_path, "rb") as file:
+                datasets["train"] = pickle.load(file)
 
-    #     print("Loading New Valid data")
-    #     with open(new_valid_path, "rb") as file:
-    #         datasets["validation"] = pickle.load(file)
+            print("Loading New Valid data with qtype")
+            with open(new_valid_path, "rb") as file:
+                datasets["validation"] = pickle.load(file)
 
-    # else:
-    #     print("Making New Train data")
-    #     datasets["train"] = preprocess_dataset(datasets["train"])
-    #     datasets["validation"] = preprocess_dataset(datasets["validation"])
+        else:
+            print("Making New Train data")
+            datasets["train"] = preprocess_dataset(datasets["train"], data_args.qtype, True)  #True for training, False for inference
+            datasets["validation"] = preprocess_dataset(datasets["validation"], data_args.qtype, True)
 
-    #     with open(new_train_path, "wb") as file:
-    #         pickle.dump(datasets["train"], file)
+            with open(new_train_path, "wb") as file:
+                pickle.dump(datasets["train"], file)
 
-    #     with open(new_test_path, "wb") as file:
-    #         pickle.dump(datasets["validation"], file)
+            with open(new_valid_path, "wb") as file:
+                pickle.dump(datasets["validation"], file)
 
-    datasets["train"] = preprocess_dataset(datasets["train"])
-    datasets["validation"] = preprocess_dataset(datasets["validation"])
+    else:
+        # 데이터 context 전처리만 시행
+        # 여기만 봐도 무방
+        datasets["train"] = preprocess_dataset(datasets["train"])
+        datasets["validation"] = preprocess_dataset(datasets["validation"])
 
     print(datasets)
-
+    print(datasets["train"][0])
 
     # AutoConfig를 이용하여 pretrained model 과 tokenizer를 불러옵니다.
     # argument로 원하는 모델 이름을 설정하면 옵션을 바꿀 수 있습니다.
@@ -131,11 +124,6 @@ def main(args):
         # rust version이 비교적 속도가 빠릅니다.
         use_fast=True,
     )
-    # model = AutoModelForQuestionAnswering.from_pretrained(
-    #     model_args.model_name_or_path,
-    #     from_tf=bool(".ckpt" in model_args.model_name_or_path),
-    #     config=config,
-    # )
 
     model = CustomModel.from_pretrained(
         model_args.model_name_or_path,
@@ -143,12 +131,11 @@ def main(args):
         config=config,
     )
 
+    # wandb
     model_name = model_args.model_name_or_path.split('/')[
         -1] if '/' in model_args.model_name_or_path else model_args.model_name_or_path
 
     eval_or_train = 'eval' if training_args.do_eval else 'train'
-
-    model_name = 'CustomModelwithCNN'
 
     wandb.init(
         project='MRC',
@@ -168,68 +155,11 @@ def main(args):
         type(model),
     )
 
-    # print(training_args)
 
     # do_train mrc model 혹은 do_eval mrc model
     if training_args.do_train or training_args.do_eval:
         run_mrc(data_args, training_args, model_args, datasets, tokenizer, model)
 
-
-def preprocess_dataset(dataset):
-    # ner = Pororo(task="ner", lang="ko")
-    new_dataset = []
-    for data in tqdm(dataset):
-        new_data = preprocess_data(data)
-        new_dataset.append(new_data)
-
-    new_dataset = pd.DataFrame(new_dataset)
-
-    return Dataset.from_pandas(new_dataset)
-
-def preprocess_data(data):
-    context = data["context"]
-    answer_start = data["answers"]["answer_start"][0]
-    # answer = data["answers"]["text"][0]
-
-    before_answer = data["context"][:answer_start]
-    after_answer = data["context"][answer_start:]
-
-    clean_before = clean_data(before_answer)
-    clean_after = clean_data(after_answer)
-
-    clean_total = clean_before + clean_after
-
-    answer_new_start = answer_start - (len(before_answer) - len(clean_before))
-
-    data["context"] = clean_total
-    data["answers"]["answer_start"][0] = answer_new_start
-    # data["answers"]["answer_type"] = answer_type(answer, ner)
-
-    return data
-
-def clean_data(text):
-    text = re.sub('\|', ' ', text)
-    text = re.sub('p=[0-9 ]*', '', text)
-    text = re.sub('링크=[\S]*', '', text)
-    text = re.sub('http\S+', '', text)
-    text = re.sub('[0-9가-힣a-zA-Z]*=[0-9가-힣a-zA-Z–§]*', '', text)
-    text = re.sub('[;#*]', '', text)
-    text = re.sub('\\\\n', '', text)
-    text = re.sub('\\n', '', text)
-    text = re.sub('\s+', ' ', text)
-
-    return text
-
-def answer_type(text, ner):
-    approved_list = ["ORGANIZATION", "DATE", "COUNTRY", "CITY", "PERSON", "LOCATION", "QUANTITY"]
-    ner_list = ner(text)
-    if len(ner_list) == 1:
-        if ner_list[0][1] in approved_list:
-            return ner_list[0][1]
-        else:
-            return "UNKNOWN"
-        
-    else: return "COMPLEX_CLASS"
 
 def run_mrc(
         data_args: DataTrainingArguments,
@@ -285,6 +215,9 @@ def run_mrc(
         tokenized_examples["start_positions"] = []
         tokenized_examples["end_positions"] = []
 
+        if 'q_type' in examples.keys() :
+            tokenized_examples['question_type'] = []
+
         for i, offsets in enumerate(offset_mapping):
             input_ids = tokenized_examples["input_ids"][i]
             cls_index = input_ids.index(tokenizer.cls_token_id)  # cls index
@@ -335,14 +268,16 @@ def run_mrc(
                         token_end_index -= 1
                     tokenized_examples["end_positions"].append(token_end_index + 1)
 
+                if 'q_type' in examples.keys() :
+                    tokenized_examples['question_type'].append(examples['q_type'][sample_index])
+
         return tokenized_examples
 
     if training_args.do_train:
         if "train" not in datasets:
             raise ValueError("--do_train requires a train dataset")
         train_dataset = datasets["train"]
-        # train_dataset = fetch_train_dataset(train_dataset, tokenizer)
-
+        
         # dataset에서 train feature를 생성합니다.
         train_dataset = train_dataset.map(
             prepare_train_features,
@@ -375,6 +310,9 @@ def run_mrc(
         # corresponding example_id를 유지하고 offset mappings을 저장해야합니다.
         tokenized_examples["example_id"] = []
 
+        if 'q_type' in examples.keys() :
+            tokenized_examples['question_type'] = []
+
         for i in range(len(tokenized_examples["input_ids"])):
             # sequence id를 설정합니다 (to know what is the context and what is the question).
             sequence_ids = tokenized_examples.sequence_ids(i)
@@ -389,6 +327,9 @@ def run_mrc(
                 (o if sequence_ids[k] == context_index else None)
                 for k, o in enumerate(tokenized_examples["offset_mapping"][i])
             ]
+
+            if 'q_type' in examples.keys() :
+                tokenized_examples['question_type'].append(examples['q_type'][sample_index])
         return tokenized_examples
 
     if training_args.do_eval:
@@ -506,31 +447,12 @@ if __name__ == "__main__":
     parser.add_argument('--save_total_limit', type=int, default=5)
     parser.add_argument('--model_name_or_path', type=str, default='klue/bert-base')
     parser.add_argument('--save_steps', type=int, default=500)
-    parser.add_argument('--num_train_epochs', type=int, default=5)
+    parser.add_argument('--num_train_epochs', type=int, default=2.2)
     # parser.add_argument('--learning_rate', type=float, default=5e-5)
-    parser.add_argument('--lr_scheduler_type', type=str, default='constant_with_warmup')
-    # parser.add_argument('--dataloader_num_workers', type=int, default=8)
-    # parser.add_argument('--metric_for_best_model', type=int, default=8)
-    # parser.add_argument('--greater_is_better', type=int, default=8)
-    parser.add_argument('--label_smoothing_factor', type=float, default=0.1)
     parser.add_argument('--per_device_train_batch_size', type=int, default=16)
     parser.add_argument('--per_device_eval_batch_size', type=int, default=16)
-    parser.add_argument('--warmup_steps', type=int, default=500)
-    parser.add_argument('--weight_decay', type=float, default=0.01)
-    parser.add_argument('--logging_dir', type=str, default="./logs")
     parser.add_argument('--logging_steps', type=int, default=100)
-    parser.add_argument('--evaluation_strategy', type=str, default="steps")
-    parser.add_argument('--eval_steps', type=int, default=500)
-    parser.add_argument('--load_best_model_at_end', type=bool, default=True)
-
-    # metric_for_best_model = args.metric_for_best_model,
-    # greater_is_better = args.greater_is_better,
-    # label_smoothing_factor = args.label_smoothing_factor,
-    # logging_dir = args.logging_dir,
-    # logging_steps = args.logging_steps,
-    # eval_steps = args.eval_steps,
-    # load_best_model_at_end = args.load_best_model_at_end,
-
+    
     args = parser.parse_args()
 
     main(args)

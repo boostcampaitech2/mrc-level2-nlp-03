@@ -9,7 +9,7 @@ class ModelArguments:
     """
 
     model_name_or_path: str = field(
-        default="klue/bert-base",
+        default="klue/roberta-large",
         metadata={
             "help": "Path to pretrained model or model identifier from huggingface.co/models"
         },
@@ -21,7 +21,7 @@ class ModelArguments:
         },
     )
     tokenizer_name: Optional[str] = field(
-        default=None,
+        default="klue/roberta-large",
         metadata={
             "help": "Pretrained tokenizer name or path if not the same as model_name"
         },
@@ -92,5 +92,9 @@ class DataTrainingArguments:
     )
 
     use_mecab: bool = field(
-        default=True, metadata={"help": "Whether to build with faiss"}
+        default=True, metadata={"help": "Whether to use mecab"}
+    )
+    
+    qtype: bool = field(
+        default=False, metadata={"help": "Whether to put question type in data"}
     )

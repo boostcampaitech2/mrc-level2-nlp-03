@@ -31,7 +31,7 @@ class CustomModel(RobertaForQuestionAnswering):
         end_positions=None, 
         output_attentions=None, 
         output_hidden_states=None, 
-        return_dict=None
+        return_dict=None,
     ):
 
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
