@@ -166,8 +166,7 @@ def run_sparse_retrieval(
     retriever = SparseRetrieval_BM25(
         tokenize_fn=tokenize_fn, data_path=data_path, context_path=context_path
     )
-    # retriever.get_sparse_embedding()
-    retriever.get_tokenized(pickle_name="wiki_clean_title.bin", bm25_name = "bm25_clean_title.bin")
+    retriever.get_tokenized()
 
     if data_args.use_faiss:
         retriever.build_faiss(num_clusters=data_args.num_clusters)
