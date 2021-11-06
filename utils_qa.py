@@ -20,6 +20,8 @@ import collections
 import json
 import logging
 import os
+import math
+import re
 from typing import Optional, Tuple, Any
 
 import numpy as np
@@ -30,12 +32,15 @@ import random
 from transformers import is_torch_available, PreTrainedTokenizerFast, TrainingArguments
 from transformers.trainer_utils import get_last_checkpoint
 
-from datasets import DatasetDict
+from datasets import DatasetDict, Dataset
 from arguments import (
     ModelArguments,
     DataTrainingArguments,
 )
 
+# for data-preprocessing
+from pororo import Pororo
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -240,10 +245,24 @@ def postprocess_qa_predictions(
         # 예측값에 확률을 포함합니다.
         for prob, pred in zip(probs, predictions):
             pred["probability"] = prob
+            pred["final_score"] = prob * 1 / (math.sqrt(len(pred["text"])))
+
+        # predictions.sort(key = lambda x:x["final_score"], reverse=True)
 
         # best prediction을 선택합니다.
         if not version_2_with_negative:
-            all_predictions[example["id"]] = predictions[0]["text"]
+
+            idx = 0
+            raw_data = predictions[0]["text"]
+
+            # 빈답안 제거
+            while(raw_data == "." and idx <n_best_size):
+                raw_data = predictions[idx]["text"]
+                idx += 1
+
+            # post-preprocess, # 제거
+            post_data = re.sub('\S*#\S*', '', raw_data)
+            all_predictions[example["id"]] = post_data.strip()
         else:
             # else case : 먼저 비어 있지 않은 최상의 예측을 찾아야 합니다
             i = 0
@@ -360,3 +379,86 @@ def check_no_error(
     if "validation" not in datasets:
         raise ValueError("--do_eval requires a validation dataset")
     return last_checkpoint, max_seq_length
+
+def preprocess_dataset(dataset, qtype=False, train=True):
+    # 데이터 context 전처리
+    # qtype: question type을 append 할지 여부
+    # train = true: train, validation
+    # train = False: inference
+
+    mt = None
+    if qtype:
+        mt = Pororo(task="translation", lang="multi")
+    
+    new_dataset = []
+    for data in tqdm(dataset):
+        new_data = preprocess_data(data, mt, train)
+        new_dataset.append(new_data)
+
+    new_dataset = pd.DataFrame(new_dataset)
+
+    return Dataset.from_pandas(new_dataset)
+
+def preprocess_data(data, mt=None, train=True):  
+    if mt is not None:
+        question = data["question"]
+        data["q_type"] = get_type(question, mt)
+
+    if train:
+        context = data["context"]
+        answer_start = data["answers"]["answer_start"][0]
+
+        before_answer = data["context"][:answer_start]
+        after_answer = data["context"][answer_start:]
+
+        clean_before = clean_data(before_answer)
+        clean_after = clean_data(after_answer)
+
+        clean_total = clean_before + clean_after
+
+        answer_new_start = answer_start - (len(before_answer) - len(clean_before))
+
+        data["context"] = clean_total
+        data["answers"]["answer_start"][0] = answer_new_start
+
+    return data
+
+def clean_data(text):
+    # 데이터 전처리
+    text = re.sub('\|', ' ', text)
+    text = re.sub('p=[0-9 ]*', '', text)
+    text = re.sub('링크=[\S]*', '', text)
+    text = re.sub('http\S+', '', text)
+    text = re.sub('[0-9가-힣a-zA-Z]*=[0-9가-힣a-zA-Z–§]*', '', text)
+    text = re.sub('[;#*]', '', text)
+    text = re.sub('\\\\n', '', text)
+    text = re.sub('\\n', '', text)
+    text = re.sub('\s+', ' ', text)
+
+    return text
+
+
+def get_type(question, mt):
+    # 질문의 타입 return
+    question_mt = mt(question, src="ko", tgt="en").lower()
+    q_start = ["why", "where", "what", "who", "when", "how"]
+    q_map = {'why':0, 'where':1, 'what':2, 'who':3, 'when':4, 'how':5, 'quantity':6, 'others':7}
+
+    q_types = [q_type for q_type in q_start if q_type in question_mt]
+
+    qty_types = ["many", "long", "much"]
+    when_types = ["year", "month", "date"]
+
+    if len(q_types) == 0: return 7
+    if len(q_types) == 1:
+        if q_types[0] == 'how':
+            qty_list = [q_type for q_type in qty_types if q_type in question_mt]
+            if len(qty_list) >= 1: return 6
+            else: return 5
+        elif q_types[0] == "what":
+            when_list = [q_type for q_type in when_types if q_type in question_mt]
+            if len(when_list) >= 1: return 4
+            else: return 2
+        else: return q_map[q_types[0]]
+
+    else:return 7

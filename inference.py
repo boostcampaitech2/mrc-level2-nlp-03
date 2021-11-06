@@ -10,6 +10,9 @@ import sys
 from typing import Callable, List, Dict, NoReturn, Tuple
 
 import numpy as np
+import os
+import pickle
+import pandas as pd
 
 from datasets import (
     load_metric,
@@ -31,9 +34,11 @@ from transformers import (
     set_seed,
 )
 
-from utils_qa import postprocess_qa_predictions, check_no_error
+from utils_qa import postprocess_qa_predictions, check_no_error, preprocess_dataset
 from trainer_qa import QuestionAnsweringTrainer
 from retrieval import SparseRetrieval
+from bm25_retrieval import SparseRetrieval_BM25
+from model import CustomModel
 
 from arguments import (
     ModelArguments,
@@ -72,7 +77,28 @@ def main():
     set_seed(training_args.seed)
 
     datasets = load_from_disk(data_args.dataset_name)
-    print(datasets)
+
+    # q_type = True, pickle 파일에서 dataset 불러오기
+    # else: 간단한 전처리만 시행
+    if data_args.qtype:
+        new_test_path='../data/new_test_dataset.bin'
+
+        if os.path.isfile(new_test_path):
+            print("Loading New Test data with qtype")
+            with open(new_test_path, "rb") as file:
+                datasets["validation"] = pickle.load(file)
+
+        else:
+            print("Making New Test data")
+            datasets["validation"] = preprocess_dataset(datasets["validation"], data_args.qtype, False)
+
+            with open(new_test_path, "wb") as file:
+                pickle.dump(datasets["validation"], file)
+
+    else:
+        datasets["validation"] = preprocess_dataset(datasets["validation"], qtype=data_args.qtype, train=False) #True for training, False for inference
+
+    print(datasets["validation"][0])
 
     # AutoConfig를 이용하여 pretrained model 과 tokenizer를 불러옵니다.
     # argument로 원하는 모델 이름을 설정하면 옵션을 바꿀 수 있습니다.
@@ -87,7 +113,13 @@ def main():
         else model_args.model_name_or_path,
         use_fast=True,
     )
-    model = AutoModelForQuestionAnswering.from_pretrained(
+    # model = AutoModelForQuestionAnswering.from_pretrained(
+    #     model_args.model_name_or_path,
+    #     from_tf=bool(".ckpt" in model_args.model_name_or_path),
+    #     config=config,
+    # )
+
+    model = CustomModel.from_pretrained(
         model_args.model_name_or_path,
         from_tf=bool(".ckpt" in model_args.model_name_or_path),
         config=config,
@@ -95,12 +127,26 @@ def main():
 
     # True일 경우 : run passage retrieval
     if data_args.eval_retrieval:
-        datasets = run_sparse_retrieval(
-            tokenizer.tokenize,
-            datasets,
-            training_args,
-            data_args,
-        )
+        
+        #bm25 retrieval pickle load/save
+        data_path = '../data'
+        pickle_name = f"sparse_retrieval.bin"
+        ret_path = os.path.join(data_path, pickle_name)
+
+        if os.path.isfile(ret_path):
+            print('Load retrieval pickle...')
+            with open(ret_path, "rb") as file:
+                datasets = pickle.load(file)
+        else:
+            datasets = run_sparse_retrieval(
+                tokenizer.tokenize,
+                datasets,
+                training_args,
+                data_args,
+            )
+            with open(ret_path, "wb") as file:
+                pickle.dump(datasets, file)
+            print('Retrieval pickle saved!')
 
     # eval or predict mrc model
     if training_args.do_eval or training_args.do_predict:
@@ -113,14 +159,14 @@ def run_sparse_retrieval(
     training_args: TrainingArguments,
     data_args: DataTrainingArguments,
     data_path: str = "../data",
-    context_path: str = "wikipedia_documents.json",
+    context_path: str = "wikipedia_documents_cleaned.json",
 ) -> DatasetDict:
 
     # Query에 맞는 Passage들을 Retrieval 합니다.
-    retriever = SparseRetrieval(
+    retriever = SparseRetrieval_BM25(
         tokenize_fn=tokenize_fn, data_path=data_path, context_path=context_path
     )
-    retriever.get_sparse_embedding()
+    retriever.get_tokenized()
 
     if data_args.use_faiss:
         retriever.build_faiss(num_clusters=data_args.num_clusters)
@@ -128,7 +174,8 @@ def run_sparse_retrieval(
             datasets["validation"], topk=data_args.top_k_retrieval
         )
     else:
-        df = retriever.retrieve(datasets["validation"], topk=data_args.top_k_retrieval)
+        # df = retriever.retrieve(datasets["validation"], topk=data_args.top_k_retrieval)
+        df = retriever.retrieve(datasets["validation"], topk=data_args.top_k_retrieval, use_mecab=data_args.use_mecab)
 
     # test data 에 대해선 정답이 없으므로 id question context 로만 데이터셋이 구성됩니다.
     if training_args.do_predict:
@@ -198,7 +245,7 @@ def run_mrc(
             stride=data_args.doc_stride,
             return_overflowing_tokens=True,
             return_offsets_mapping=True,
-            #return_token_type_ids=False, # roberta모델을 사용할 경우 False, bert를 사용할 경우 True로 표기해야합니다.
+            return_token_type_ids=False, # roberta모델을 사용할 경우 False, bert를 사용할 경우 True로 표기해야합니다.
             padding="max_length" if data_args.pad_to_max_length else False,
         )
 
@@ -208,6 +255,9 @@ def run_mrc(
         # evaluation을 위해, prediction을 context의 substring으로 변환해야합니다.
         # corresponding example_id를 유지하고 offset mappings을 저장해야합니다.
         tokenized_examples["example_id"] = []
+
+        if 'q_type' in examples.keys() :
+            tokenized_examples['question_type'] = []
 
         for i in range(len(tokenized_examples["input_ids"])):
             # sequence id를 설정합니다 (to know what is the context and what is the question).
@@ -223,6 +273,10 @@ def run_mrc(
                 (o if sequence_ids[k] == context_index else None)
                 for k, o in enumerate(tokenized_examples["offset_mapping"][i])
             ]
+
+            if 'q_type' in examples.keys() :
+                tokenized_examples['question_type'].append(examples['q_type'][sample_index])
+
         return tokenized_examples
 
     eval_dataset = datasets["validation"]

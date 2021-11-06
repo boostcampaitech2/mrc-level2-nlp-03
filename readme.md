@@ -26,9 +26,12 @@ bash ./install/install_requirements.sh
 ./install/               # 요구사항 설치 파일 
 ./data/                  # 전체 데이터. 아래 상세 설명
 retrieval.py             # sparse retreiver 모듈 제공 
+bm_25.retrieval.py       # bm25로 구현한 sparse retriever 모듈 제공
+retrieval_inference.py   # retriever 평가
 arguments.py             # 실행되는 모든 argument가 dataclass 의 형태로 저장되어있음
 trainer_qa.py            # MRC 모델 학습에 필요한 trainer 제공.
 utils_qa.py              # 기타 유틸 함수 제공 
+wiki_preprocess.py       # wikipedia.json 파일 전처리를 위한 함수 제공
 
 train.py                 # MRC, Retrieval 모델 학습 및 평가 
 inference.py		     # ODQA 모델 평가 또는 제출 파일 (predictions.json) 생성
@@ -52,6 +55,14 @@ inference.py		     # ODQA 모델 평가 또는 제출 파일 (predictions.json) 
 data에 대한 argument 는 `arguments.py` 의 `DataTrainingArguments` 에서 확인 가능합니다. 
 
 # 훈련, 평가, 추론
+
+### wikipedia preprocess
+retrieval 전 wikipedia.json 파일 전처리를 먼저 시행해주어야합니다.
+전처리 후 wikipedia_documents_cleaned.json 파일이 만들어집니다.
+
+```
+python wiki_preprocess.py
+```
 
 ### train
 
@@ -124,7 +135,7 @@ python inference.py --output_dir ./outputs/test_dataset/ --dataset_name ../data/
 
 ## Things to know
 
-1. `train.py` 에서 sparse embedding 을 훈련하고 저장하는 과정은 시간이 오래 걸리지 않아 따로 argument 의 default 가 True로 설정되어 있습니다. 실행 후 sparse_embedding.bin 과 tfidfv.bin 이 저장이 됩니다. **만약 sparse retrieval 관련 코드를 수정한다면, 꼭 두 파일을 지우고 다시 실행해주세요!** 안그러면 존재하는 파일이 load 됩니다.
+1. `train.py` 에서 sparse embedding 을 훈련하고 저장하는 과정은 시간이 오래 걸리지 않아 따로 argument 의 default 가 True로 설정되어 있습니다. 실행 후 sparse_embedding.bin 과 tfidfv.bin 이 저장이 됩니다. BM-25를 사용하는 경우 sparse_embedding.bin과 bm25.bin이 저장이 됩니다. **만약 sparse retrieval 관련 코드를 수정한다면, 꼭 두 파일을 지우고 다시 실행해주세요!** 안그러면 존재하는 파일이 load 됩니다.
 2. 모델의 경우 `--overwrite_cache` 를 추가하지 않으면 같은 폴더에 저장되지 않습니다. 
 
 3. ./outputs/ 폴더 또한 `--overwrite_output_dir` 을 추가하지 않으면 같은 폴더에 저장되지 않습니다.

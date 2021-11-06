@@ -9,7 +9,7 @@ class ModelArguments:
     """
 
     model_name_or_path: str = field(
-        default="klue/bert-base",
+        default="klue/roberta-large",
         metadata={
             "help": "Path to pretrained model or model identifier from huggingface.co/models"
         },
@@ -21,7 +21,7 @@ class ModelArguments:
         },
     )
     tokenizer_name: Optional[str] = field(
-        default=None,
+        default="klue/roberta-large",
         metadata={
             "help": "Pretrained tokenizer name or path if not the same as model_name"
         },
@@ -82,11 +82,19 @@ class DataTrainingArguments:
         default=64, metadata={"help": "Define how many clusters to use for faiss."}
     )
     top_k_retrieval: int = field(
-        default=1,
+        default=5,
         metadata={
             "help": "Define how many top-k passages to retrieve based on similarity."
         },
     )
     use_faiss: bool = field(
         default=False, metadata={"help": "Whether to build with faiss"}
+    )
+
+    use_mecab: bool = field(
+        default=True, metadata={"help": "Whether to use mecab"}
+    )
+    
+    qtype: bool = field(
+        default=False, metadata={"help": "Whether to put question type in data"}
     )
