@@ -54,7 +54,7 @@ class SparseRetrieval_BM25(SparseRetrieval):
         self.ner = Pororo(task='ner', lang='ko')
         self.keyword_list = "PERSON ARTIFACT CITY COUNTRY LOCATION PLANT ANIMAL".split()
 
-    def get_tokenized(self, pickle_name="tokenized_wiki_with_title.bin", bm25_name = "bm25_with_title.bin") -> NoReturn:
+    def get_tokenized(self, pickle_name="sparse_embedding.bin", bm25_name = "bm25.bin") -> NoReturn:
 
         """
         Summary:
