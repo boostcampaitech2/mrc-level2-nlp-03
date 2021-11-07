@@ -118,8 +118,8 @@ After downloading  and converting datasets and baseline codes, the data director
 │   ├── inference.py
 │   ├── inference_command.txt
 │   ├── model.py
-│   ├── readme.md
-│   ├── README_en.md
+│   ├── README.md
+│   ├── README_KO.md
 │   ├── retrieval.py
 │   ├── retrieval_inference.py
 │   ├── run.sh
