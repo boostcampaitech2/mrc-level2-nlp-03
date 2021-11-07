@@ -163,10 +163,12 @@ To download dataset, run following command. The dataset will be located in `/opt
 $ !wget https://aistages-prod-server-public.s3.amazonaws.com/app/Competitions/000077/data/data.tar.gz
 ``` 
 ### Train Models (GPU needed)
+#### Extractive Model
 To train extractive models, run following commands.
 ```
 $ python train.py --output_dir ./models/train_dataset --do_train
 ```
+#### Extractive Model
 To train generative models, run following commands.
 ```
 $ python generation.py --output_dir ./models/train_dataset --do_train
