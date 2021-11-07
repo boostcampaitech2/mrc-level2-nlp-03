@@ -1,4 +1,4 @@
-<h1 align="center"> Open-Domain Question Answering 👋</h1>
+<h1 align="center">Open-Domain Question Answering 👋</h1>
 
 <!-- <p align="center">
   <img alt="GitHub watchers" src="https://img.shields.io/github/watchers/boostcampaitech2/klue-level2-nlp-03?style=social">
@@ -90,7 +90,7 @@ $ bash ./install/install_requirements.sh
 ```
 
 ## Dataset Preparation
-All CSV files are already in data directory.
+All json files are already in data directory.
 ```
 # data (51.2 MB)
 tar -xzf data.tar.gz
@@ -168,7 +168,7 @@ To train extractive models, run following commands.
 ```
 $ python train.py --output_dir ./models/train_dataset --do_train
 ```
-#### Extractive Model
+#### Generative Model
 To train generative models, run following commands.
 ```
 $ python generation.py --output_dir ./models/train_dataset --do_train
@@ -203,4 +203,4 @@ $ python train.py --output_dir ./outputs/train_dataset --model_name_or_path ./mo
 </p>
 
 ## Reference
-[KLUE-RE - Relation Extraction](https://klue-benchmark.com/tasks/72/data/description)
+[KLUE-MRC - Machine Reading Comprehension](https://klue-benchmark.com/tasks/72/data/description)
