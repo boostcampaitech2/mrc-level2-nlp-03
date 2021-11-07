@@ -90,11 +90,34 @@ class DataTrainingArguments:
     use_faiss: bool = field(
         default=False, metadata={"help": "Whether to build with faiss"}
     )
-
+    ####
     use_mecab: bool = field(
         default=True, metadata={"help": "Whether to use mecab"}
-    )
-    
+    )    
     qtype: bool = field(
         default=False, metadata={"help": "Whether to put question type in data"}
     )
+    #### for generative MRC 
+        max_source_length: int = field(
+        default=1024,
+        metadata={
+            "help": "The maximum total input source length after tokenization. Sequences longer "
+            "than this will be truncated, sequences shorter will be padded."
+        },
+    )
+    max_target_length: int = field(
+        default=128,
+        metadata={
+            "help": "The maximum total input target length after tokenization. Sequences longer "
+            "than this will be truncated, sequences shorter will be padded."
+        },
+    )
+    max_val_samples: int = field(
+        default=16, metadata={"help":"eval batch size"}
+    )
+    num_beams: int = field(
+        default=2, metadata={"help": "the number of beamsearch"}
+    )
+    extractive_based: bool = field(
+        default=True, metadata={"help": "extractive or generative"}
+    )  
