@@ -1,4 +1,4 @@
-<h1 align="center">Entity Relation Extraction in sentences 👋</h1>
+<h1 align="center"> Open-Domain Question Answering 👋</h1>
 
 <!-- <p align="center">
   <img alt="GitHub watchers" src="https://img.shields.io/github/watchers/boostcampaitech2/klue-level2-nlp-03?style=social">
