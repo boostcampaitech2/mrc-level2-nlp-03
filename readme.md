@@ -1,141 +1,206 @@
-# Readme
+<h1 align="center">Open-Domain Question Answering 👋</h1>
 
-## 소개
+<!-- <p align="center">
+  <img alt="GitHub watchers" src="https://img.shields.io/github/watchers/boostcampaitech2/klue-level2-nlp-03?style=social">
+  <img alt="GitHub Pipenv locked Python version" src="https://img.shields.io/github/pipenv/locked/python-version/boostcampaitech2/klue-level2-nlp-03?style=plastic">
+  <img alt="Conda" src="https://img.shields.io/conda/pn/boostcampaitech2/klue-level2-nlp-03">
+</p>   -->
 
-P stage 3 대회를 위한 베이스라인 코드 
+## Overview Description
 
-## 설치 방법
+MRC is a task of evaluating model that can answer a question about a given text passage. We formulate KLUE-MRC as to predict the answer span in the given passage corresponding to the question. The input is a concatenated sequence of the question and the passage separated with a delimiter. The output is the start and end positions of the predicted answer span within the passage.
 
-### 요구 사항
 
+We provide three question types: paraphrase, multi-sentence reasoning, and unanswerable, in order to evaluate different aspects of machine reading capability of a model. These question types prevent a model from exploiting reasoning shortcuts with simple word-matching by enforcing lexical and syntactic variations when workers generate questions. The questions also should be answered by considering the full query sentence.
+
+
+
+## Evaluation Methods
+The evaluation metrics for KLUE-MRC are 1) exact match (EM) and 2) character-level ROUGE-W (ROUGE), which can be viewed as longest common consecutive subsequence (LCCS)-based F1 score.
+
+
+EM is the most commonly used metric for QA tasks, which measures the equality of ground truth and predicted answer string. If there are multiple gold labels, a model can earn score when at least one prediction is matched.
+
+
+In contrast, ROUGE gives a partial score although a model fails to predict exactly matched answer. Due to the characteristics of Korean, an answer span can be located inside of a single word, hence subword-level span should be considered. ROUGE calculates F1 score of the length ratio of LCCS to a prediction and the length ratio of LCCS to a ground truth string. In case of multiple ground-truth answer spans having the same meaning but different lexical variations (e.g. TV, Television), we use the maximum ROUGE score among the combinations of answers and the prediction. We do not adopt character-level F1 score (char F1), which is used in all the previous Korean MRC datasets, since it measures character overlap regardless of the order. When a model predicts `한국의 위인들 (great people in Korea)` and an answer is `국한된 범위 (limited scope)`, a metric should give a low score. ROUGE scores 15.38, whereas char F1 gives 54.55 due to the overlap of `한`, `국`, and `위`.
+
+
+
+## Code Contributors
+
+<p>
+<a href="https://github.com/iamtrueline" target="_blank">
+  <img x="5" y="5" width="64" height="64" border="0" src="https://avatars.githubusercontent.com/u/79238023?v=4"/>
+</a>
+<a href="https://github.com/promisemee" target="_blank">
+  <img x="74" y="5" width="64" height="64" border="0" src="https://avatars.githubusercontent.com/u/31719240?v=4"/>
+</a>
+<a href="https://github.com/kimminji2018" target="_blank">
+  <img x="143" y="5" width="64" height="64" border="0" src="https://avatars.githubusercontent.com/u/74283190?v=4"/>
+</a>
+<a href="https://github.com/Ihyun" target="_blank">
+  <img x="212" y="5" width="64" height="64" border="0" src="https://avatars.githubusercontent.com/u/32431157?v=4"/>
+</a>
+<a href="https://github.com/sw6820" target="_blank">
+  <img x="281" y="5" width="64" height="64" border="0" src="https://avatars.githubusercontent.com/u/52646313?v=4"/>
+</a>
+<a href="https://github.com/NayoungLee-de" target="_blank">
+  <img x="350" y="5" width="64" height="64" border="0" src="https://avatars.githubusercontent.com/u/69383548?v=4"/>
+</a>
+
+</p>
+
+## Environments 
+
+### OS
+ - UBUNTU 18.04
+
+### Requirements
+```
+datasets==1.5.0
+transformers==4.5.0
+tqdm==4.41.1
+pandas==1.1.4
+scikit-learn==0.24.1
+konlpy==0.5.2
+numpy==1.21.3
+faiss-gpu==1.7.1.post2
+rank_bm25==0.2.1
+pororo==0.4.2
+```
+### Hardware
+The following specs were used to create the original solution.
+- GPU(CUDA) : v100 
+
+## Reproducing Submission
+To reproduct my submission without retraining, do the following steps:
+1. [Installation](#installation)
+2. [Dataset Preparation](#Dataset-Preparation)
+3. [Prepare Datasets](#Prepare-Datasets)
+4. [Download Baseline Codes](#Download-Baseline-Codes)
+5. [Train models](#Train-models-(GPU-needed))
+6. [Inference & make submission](#Inference-&-make-submission)
+7. [Ensemble](#Ensemble)
+8. [Wandb graphs](#Wandb-graphs)
+
+## Installation
+All requirements should be detailed in requirements.txt. Using Anaconda is strongly recommended.
+```
+$ bash ./install/install_requirements.sh
+```
+
+## Dataset Preparation
+All json files are already in data directory.
 ```
 # data (51.2 MB)
 tar -xzf data.tar.gz
-
-# 필요한 파이썬 패키지 설치. 
-bash ./install/install_requirements.sh
 ```
-
-## 파일 구성
-
-
-### 저장소 구조
-
-```bash
-./assets/                # readme 에 필요한 이미지 저장
-./install/               # 요구사항 설치 파일 
-./data/                  # 전체 데이터. 아래 상세 설명
-retrieval.py             # sparse retreiver 모듈 제공 
-bm_25.retrieval.py       # bm25로 구현한 sparse retriever 모듈 제공
-retrieval_inference.py   # retriever 평가
-arguments.py             # 실행되는 모든 argument가 dataclass 의 형태로 저장되어있음
-trainer_qa.py            # MRC 모델 학습에 필요한 trainer 제공.
-utils_qa.py              # 기타 유틸 함수 제공 
-wiki_preprocess.py       # wikipedia.json 파일 전처리를 위한 함수 제공
-
-train.py                 # MRC, Retrieval 모델 학습 및 평가 
-inference.py		     # ODQA 모델 평가 또는 제출 파일 (predictions.json) 생성
+### Prepare Datasets
+After downloading  and converting datasets and baseline codes, the data directory is structured as:
 ```
-
-## 데이터 소개
-
-아래는 제공하는 데이터셋의 분포를 보여줍니다.
-
-![데이터 분포](./assets/dataset.png)
-
-데이터셋은 편의성을 위해 Huggingface 에서 제공하는 datasets를 이용하여 pyarrow 형식의 데이터로 저장되어있습니다. 다음은 데이터셋의 구성입니다.
-
-```python
-./data/                        # 전체 데이터
-    ./train_dataset/           # 학습에 사용할 데이터셋. train 과 validation 으로 구성 
-    ./test_dataset/            # 제출에 사용될 데이터셋. validation 으로 구성 
-    ./wikipedia_documents.json # 위키피디아 문서 집합. retrieval을 위해 쓰이는 corpus.
-```
-
-data에 대한 argument 는 `arguments.py` 의 `DataTrainingArguments` 에서 확인 가능합니다. 
-
-# 훈련, 평가, 추론
-
-### wikipedia preprocess
-retrieval 전 wikipedia.json 파일 전처리를 먼저 시행해주어야합니다.
-전처리 후 wikipedia_documents_cleaned.json 파일이 만들어집니다.
-
-```
-python wiki_preprocess.py
-```
-
-### train
-
-만약 arguments 에 대한 세팅을 직접하고 싶다면 `arguments.py` 를 참고해주세요. 
-
-roberta 모델을 사용할 경우 tokenizer 사용시 아래 함수의 옵션을 수정해야합니다.
-베이스라인은 klue/bert-base로 진행되니 이 부분의 주석을 해제하여 사용해주세요 ! 
-tokenizer는 train, validation (train.py), test(inference.py) 전처리를 위해 호출되어 사용됩니다.
-(tokenizer의 return_token_type_ids=False로 설정해주어야 함)
+├── code
+│   ├── assets
+│   │    ├── system_assets1.png
+│   │    ├── system_assets2.png
+│   │    ├── train_assets.png
+│   │    └── dataset.png
+│   ├── install
+│   │    └── install_requirements.sh
+│   ├── ensemble_csv
+│   │    ├── ensemble.ipynb
+│   │    ├── klue-bert-base__BM5_topk_8.csv
+│   │    ├── klue-bert-base__dpr_train_topk_5.csv
+│   │    ├── koelectra-base__BM25_topk_5.csv
+│   │    ├── roberta_cnn__batch_16__BM5_topk_5.csv
+│   │    └── roberta_cnn__batch_8__BM25_topk_5.csv
+│   ├── arguments.py
+│   ├── bm25_retrieval.py
+│   ├── inference.py
+│   ├── inference_command.txt
+│   ├── model.py
+│   ├── readme.md
+│   ├── README_en.md
+│   ├── retrieval.py
+│   ├── retrieval_inference.py
+│   ├── run.sh
+│   ├── train.py
+│   ├── train_command.txt
+│   ├── trainer_qa.py
+│   ├── utils_qa.py
+│   └── wiki_preprocess.py
+└── data
+    ├── test_dataset
+    │    ├── dataset_dict.json
+    │    └── validataion
+    │          ├── dataset.arrow
+    │          ├── dataset_info.json
+    │          ├── indices.arrow
+    │          └── state.json
+    ├── train_dataset
+    │          ├── train    
+    │          │    ├── dataset.arrow
+    │          │    ├── dataset_info.json
+    │          │    ├── indices.arrow
+    │          │    └── state.json
+    │          ├── validation
+    │          │    ├── dataset.arrow
+    │          │    ├── dataset_info.json
+    │          │    ├── indices.arrow
+    │          │    └── state.json    
+    │          └── dataset_dict.json
+    └── wikipedia_documents.json
 
 ```
-# train.py
-def prepare_train_features(examples):
-        # truncation과 padding(length가 짧을때만)을 통해 toknization을 진행하며, stride를 이용하여 overflow를 유지합니다.
-        # 각 example들은 이전의 context와 조금씩 겹치게됩니다.
-        tokenized_examples = tokenizer(
-            examples[question_column_name if pad_on_right else context_column_name],
-            examples[context_column_name if pad_on_right else question_column_name],
-            truncation="only_second" if pad_on_right else "only_first",
-            max_length=max_seq_length,
-            stride=data_args.doc_stride,
-            return_overflowing_tokens=True,
-            return_offsets_mapping=True,
-            #return_token_type_ids=False, # roberta모델을 사용할 경우 False, bert를 사용할 경우 True로 표기해야합니다.
-            padding="max_length" if data_args.pad_to_max_length else False,
-        )
+#### Download Baseline code
+To download baseline codes, run following command. The baseline codes will be located in `/opt/ml/code`
+```
+$ !wget https://aistages-prod-server-public.s3.amazonaws.com/app/Competitions/000077/data/code.tar.gz
 ```
 
+#### Download Dataset
+To download dataset, run following command. The dataset will be located in `/opt/ml/dataset`
 ```
-# 학습 예시 (train_dataset 사용)
-python train.py --output_dir ./models/train_dataset --do_train
+$ !wget https://aistages-prod-server-public.s3.amazonaws.com/app/Competitions/000077/data/data.tar.gz
+``` 
+### Train Models (GPU needed)
+#### Extractive Model
+To train extractive models, run following commands.
 ```
-
-### eval
-
-MRC 모델의 평가는(`--do_eval`) 따로 설정해야 합니다.  위 학습 예시에 단순히 `--do_eval` 을 추가로 입력해서 훈련 및 평가를 동시에 진행할 수도 있습니다.
-
+$ python train.py --output_dir ./models/train_dataset --do_train
 ```
-# mrc 모델 평가 (train_dataset 사용)
-python train.py --output_dir ./outputs/train_dataset --model_name_or_path ./models/train_dataset/ --do_eval 
+#### Generative Model
+To train generative models, run following commands.
 ```
-
-### inference
-
-retrieval 과 mrc 모델의 학습이 완료되면 `inference.py` 를 이용해 odqa 를 진행할 수 있습니다.
-
-* 학습한 모델의  test_dataset에 대한 결과를 제출하기 위해선 추론(`--do_predict`)만 진행하면 됩니다. 
-
-* 학습한 모델이 train_dataset 대해서 ODQA 성능이 어떻게 나오는지 알고 싶다면 평가(--do_eval)를 진행하면 됩니다.
-
-```
-# ODQA 실행 (test_dataset 사용)
-# wandb 가 로그인 되어있다면 자동으로 결과가 wandb 에 저장됩니다. 아니면 단순히 출력됩니다
-python inference.py --output_dir ./outputs/test_dataset/ --dataset_name ../data/test_dataset/ --model_name_or_path ./models/train_dataset/ --do_predict
+$ python generation.py --output_dir ./models/train_dataset --do_train
 ```
 
-### How to submit
+The expected training times are:
 
-`inference.py` 파일을 위 예시처럼 `--do_predict` 으로 실행하면 `--output_dir` 위치에 `predictions.json` 이라는 파일이 생성됩니다. 해당 파일을 제출해주시면 됩니다.
+Model | GPUs | Batch Size | Training Epochs | Training Time
+------------  | ------------- | ------------- | ------------- | -------------
+ roberta-large + cnn | v100 | 16 | 3 | 34m 18s
+ bart-base | v100 | 8 | 3 | 11m 58s
+ bert-base | v100 | 16 | 5 | 25m 07s 
+ koelectra-base | v100 | 16 | 3 | 15m 43s
+ t-base | v100 | 8 | 3 | 9m 57s
 
-### 베이스라인 모델 학습 결과
 
-다음은 MRC 베이스라인 모델의 훈련 결과를 보여줍니다.
+### Inference & Make Submission
+```
+$ python train.py --output_dir ./outputs/train_dataset --model_name_or_path ./models/train_dataset/ --do_eval 
+```
 
-![mrc 결과](./assets/mrc.png)
+### Wandb Graphs
+- Train Graphs
+<p>
+    <img src="https://github.com/boostcampaitech2/mrc-level2-nlp-03/blob/main/assets/train_assets.PNG">
+</p>    
 
-다음은 위 MRC 모델을 사용한 ODQA 베이스라인 모델의 결과를 보여줍니다.
+- System Graphs
+<p>
+    <img src="https://github.com/boostcampaitech2/mrc-level2-nlp-03/blob/main/assets/system_assets1.PNG">
+    <img src="https://github.com/boostcampaitech2/mrc-level2-nlp-03/blob/main/assets/system_assets2.PNG">
+</p>
 
-![odqa 결과](./assets/odqa.png)
-
-## Things to know
-
-1. `train.py` 에서 sparse embedding 을 훈련하고 저장하는 과정은 시간이 오래 걸리지 않아 따로 argument 의 default 가 True로 설정되어 있습니다. 실행 후 sparse_embedding.bin 과 tfidfv.bin 이 저장이 됩니다. BM-25를 사용하는 경우 sparse_embedding.bin과 bm25.bin이 저장이 됩니다. **만약 sparse retrieval 관련 코드를 수정한다면, 꼭 두 파일을 지우고 다시 실행해주세요!** 안그러면 존재하는 파일이 load 됩니다.
-2. 모델의 경우 `--overwrite_cache` 를 추가하지 않으면 같은 폴더에 저장되지 않습니다. 
-
-3. ./outputs/ 폴더 또한 `--overwrite_output_dir` 을 추가하지 않으면 같은 폴더에 저장되지 않습니다.
+## Reference
+[KLUE-MRC - Machine Reading Comprehension](https://klue-benchmark.com/tasks/72/data/description)
